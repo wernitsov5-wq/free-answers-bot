@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: free-answers-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python exam_bot.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: BOT_TOKEN
+        value: 8674062910:AAF4NYbi2HOu74w-9yJ9bXS9p_QVU2QgS-4
