@@ -5,25 +5,58 @@ import string
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from flask import Flask
+from threading import Thread
+import requests
+import time
 
 # ===== ТВОЙ ТОКЕН =====
 BOT_TOKEN = "8674062910:AAF4NYbi2HOu74w-9yJ9bXS9p_QVU2QgS-4"
-
-# ID менеджера (твой ID)
 MANAGER_ID = 7672790214
+
+# ===== ВЕБ-СЕРВЕР ДЛЯ RENDER И UPTIMEROBOT =====
+web_app = Flask('')
+
+@web_app.route('/')
+def home():
+    return "✅ Бот работает! Онлайн 24/7"
+
+@web_app.route('/health')
+def health():
+    return "OK", 200
+
+def run_web():
+    web_app.run(host='0.0.0.0', port=10000)
+
+def keep_alive():
+    t = Thread(target=run_web)
+    t.start()
+
+# ===== АВТО-ПИНГ (чтобы бот сам себя будил) =====
+def auto_ping():
+    url = "https://free-answers-bot.onrender.com"
+    while True:
+        try:
+            requests.get(url, timeout=10)
+            print(f"✅ Пинг отправлен в {time.strftime('%H:%M:%S')}")
+        except:
+            print(f"❌ Ошибка пинга в {time.strftime('%H:%M:%S')}")
+        time.sleep(840)  # 14 минут
+
+def start_ping():
+    t = Thread(target=auto_ping)
+    t.start()
 
 # ===== НАСТРОЙКИ =====
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def generate_unlock_code():
-    """Генерирует уникальный код для доступа"""
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
 
 def init_database():
     conn = sqlite3.connect('exam_answers.db')
     c = conn.cursor()
-    
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (user_id INTEGER PRIMARY KEY,
                   username TEXT,
@@ -32,11 +65,9 @@ def init_database():
                   has_access INTEGER DEFAULT 0,
                   unlock_code TEXT,
                   registered_date TIMESTAMP)''')
-    
     conn.commit()
     conn.close()
 
-# ===== КОМАНДА СТАРТ =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
@@ -68,11 +99,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("👥 Реферальная система", callback_data="menu_referral")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         await update.message.reply_text(
-            "📚 **БЕСПЛАТНЫЕ ОТВЕТЫ** 📚\n\n"
-            "Добро пожаловать! У тебя есть полный доступ ко всем материалам.\n\n"
-            "**Выбери раздел:**",
+            "📚 **БЕСПЛАТНЫЕ ОТВЕТЫ** 📚\n\nДобро пожаловать! У тебя есть полный доступ ко всем материалам.\n\n**Выбери раздел:**",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -81,7 +109,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔗 Реферальная ссылка", callback_data="menu_referral")],
             [InlineKeyboardButton("📊 Проверить прогресс", callback_data="check_invites")]
         ]
-        
         if unlock_code:
             keyboard.append([InlineKeyboardButton("🎫 Показать код менеджеру", callback_data="show_code")])
         
@@ -104,12 +131,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
-# ===== ГЛАВНОЕ МЕНЮ (ПРИ НАЖАТИИ "НАЗАД") =====
 async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик кнопки 'Назад в меню'"""
     query = update.callback_query
     await query.answer()
-    
     user_id = query.from_user.id
     
     conn = sqlite3.connect('exam_answers.db')
@@ -118,8 +142,6 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = c.fetchone()
     has_access = result[0] if result else 0
     conn.close()
-    
-    bot_username = context.bot.username
     
     if has_access:
         keyboard = [
@@ -138,6 +160,7 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
     else:
+        bot_username = context.bot.username
         ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
         keyboard = [
             [InlineKeyboardButton("🔗 Реферальная ссылка", callback_data="menu_referral")],
@@ -145,22 +168,17 @@ async def back_to_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            f"📚 **БЕСПЛАТНЫЕ ОТВЕТЫ** 📚\n\n"
-            f"Привет! Чтобы получить доступ ко всем материалам, пригласи **15 друзей**!\n\n"
-            f"Твоя реферальная ссылка:\n`{ref_link}`",
+            f"📚 **БЕСПЛАТНЫЕ ОТВЕТЫ** 📚\n\nТвоя реферальная ссылка:\n`{ref_link}`",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
 
-# ===== ОБРАБОТЧИК КНОПОК =====
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     data = query.data
     user_id = query.from_user.id
     
-    # РАЗДЕЛЫ
     if data == "menu_oral":
         text = "🗣️ **УСТНОЕ СОБЕСЕДОВАНИЕ** 🗣️\n\nОтветы и материалы будут здесь."
         keyboard = [[InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu")]]
@@ -191,7 +209,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton("◀️ Назад в меню", callback_data="back_to_menu")]]
         await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
     
-    # РЕФЕРАЛКА
     elif data == "menu_referral":
         conn = sqlite3.connect('exam_answers.db')
         c = conn.cursor()
@@ -243,11 +260,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("❌ У тебя пока нет кода. Пригласи 15 друзей!")
     
-    # КНОПКА НАЗАД
     elif data == "back_to_menu":
         await back_to_menu(update, context)
 
-# ===== РЕФЕРАЛЬНЫЕ ПЕРЕХОДЫ =====
 async def handle_start_with_ref(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username
@@ -291,7 +306,6 @@ async def handle_start_with_ref(update: Update, context: ContextTypes.DEFAULT_TY
     
     await start(update, context)
 
-# ===== КОМАНДА ДЛЯ МЕНЕДЖЕРА =====
 async def check_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != MANAGER_ID:
         await update.message.reply_text("❌ Нет доступа")
@@ -323,7 +337,6 @@ async def check_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"❌ Код `{code}` не найден", parse_mode='Markdown')
 
-# ===== ЗАПУСК =====
 def main():
     print("📚 ЗАПУСК БОТА 📚")
     print("=" * 40)
@@ -331,17 +344,16 @@ def main():
     init_database()
     print("✅ База данных готова")
     
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    application.add_handler(CommandHandler("start", handle_start_with_ref))
-    application.add_handler(CommandHandler("check", check_code))
-    application.add_handler(CallbackQueryHandler(button_handler))
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", handle_start_with_ref))
+    app.add_handler(CommandHandler("check", check_code))
+    app.add_handler(CallbackQueryHandler(button_handler))
     
     print("✅ Бот запущен!")
-    print("✅ Команда менеджера: /check КОД")
     print("=" * 40)
-    
-    application.run_polling()
+    app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    keep_alive()      # Запускаем веб-сервер для Render
+    start_ping()      # Запускаем авто-пинг (бужение себя)
+    main()            # Запускаем бота
